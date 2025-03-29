@@ -1,0 +1,33 @@
+# Smithery.ai configuration for GA4 MCP server
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required: []
+    properties:
+      property_id:
+        type: string
+        title: GA4 Property ID
+        description: Your Google Analytics 4 property ID
+
+  commandFunction: |-
+    (config) => {
+      const args = [];
+      
+      // Add property ID if provided
+      if (config.property_id) {
+        args.push("--property-id", config.property_id);
+      }
+      
+      return {
+        command: "python",
+        args: ["-m", "mcp_server_ga4.main", ...args],
+        env: {
+          PYTHONUNBUFFERED: "1"
+        }
+      };
+    }
+
+build:
+  dockerfile: Dockerfile
+  dockerBuildPath: .
