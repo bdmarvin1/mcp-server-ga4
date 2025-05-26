@@ -1,18 +1,20 @@
+'''
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-server-ga4"
-version = "0.1.0"
-description = "Model Context Protocol (MCP) server for Google Analytics 4 (GA4)"
+version = "0.2.1" # Updated version
+description = "Model Context Protocol (MCP) server for Google Analytics 4 (GA4) with OAuth support"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [
-    { name = "MCP Community" }
+    { name = "MCP Community" },
+    { name = "bdmarvin1" }
 ]
-keywords = ["mcp", "google-analytics", "ga4", "model-context-protocol"]
+keywords = ["mcp", "google-analytics", "ga4", "model-context-protocol", "oauth"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -21,10 +23,12 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
     "mcp>=1.0.0",
     "google-analytics-data>=0.16.0",
+    "google-auth>=2.0.0", # Explicitly added for google.oauth2.credentials
     "python-dotenv>=0.19.0",
 ]
 
@@ -34,11 +38,12 @@ dev = [
     "isort",
     "mypy",
     "pytest",
+    "uv", # Added uv for development consistency
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/mcp-server-ga4"
-"Bug Tracker" = "https://github.com/yourusername/mcp-server-ga4/issues"
+"Homepage" = "https://github.com/bdmarvin1/mcp-server-ga4" # Updated placeholder
+"Bug Tracker" = "https://github.com/bdmarvin1/mcp-server-ga4/issues" # Updated placeholder
 
 [project.scripts]
 mcp-server-ga4 = "mcp_server_ga4.main:main"
@@ -48,8 +53,9 @@ packages = ["mcp_server_ga4"]
 
 [tool.black]
 line-length = 88
-target-version = ["py39"]
+target-version = ["py39", "py310", "py311", "py312"] # Aligned with supported Python versions
 
 [tool.isort]
 profile = "black"
 line_length = 88
+'''
