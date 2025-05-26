@@ -24,26 +24,25 @@ DATE_RANGE_ALIASES = {
     "today": (datetime.now().strftime("%Y-%m-%d"), datetime.now().strftime("%Y-%m-%d")),
     "yesterday": ((datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"), 
                   (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")),
-    "last7days": ((datetime.now() - timedelta(days=6)).strftime("%Y-%m-%d"), # Corrected: 7 days including today means 6 days ago to today
+    "last7days": ((datetime.now() - timedelta(days=6)).strftime("%Y-%m-%d"), 
                  datetime.now().strftime("%Y-%m-%d")),
-    "last30days": ((datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d"), # Corrected: 30 days including today means 29 days ago to today
+    "last30days": ((datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d"), 
                   datetime.now().strftime("%Y-%m-%d")),
 }
 
 
 class GA4Client:
-    '''Client for interacting with the Google Analytics 4 Data API.'''
+    """Client for interacting with the Google Analytics 4 Data API."""
     
     def __init__(self, default_property_id: Optional[str] = None):
-        '''
+        """
         Initialize the GA4 client.
         
         Args:
             default_property_id: Default GA4 property ID to use if not specified in requests
-        '''
+        """
         self.default_property_id = default_property_id
         self._executor = ThreadPoolExecutor(max_workers=5)
-        # self._client is the ADC-based default client
         self._client: Optional[BetaAnalyticsDataClient] = None
         try:
             self._loop = asyncio.get_running_loop()
@@ -53,9 +52,9 @@ class GA4Client:
 
 
     async def _get_adc_client(self) -> BetaAnalyticsDataClient:
-        '''
+        """
         Get or create the default GA4 API client using Application Default Credentials.
-        '''
+        """
         if self._client is None:
             logger.info("Initializing default ADC-based BetaAnalyticsDataClient.")
             self._client = await self._loop.run_in_executor(
@@ -64,9 +63,9 @@ class GA4Client:
         return self._client
 
     async def _get_token_based_client(self, access_token: str) -> BetaAnalyticsDataClient:
-        '''
+        """
         Create a new GA4 API client using a provided OAuth access token.
-        '''
+        """
         logger.info("Initializing token-based BetaAnalyticsDataClient.")
         try:
             creds = google_credentials.Credentials(token=access_token)
@@ -80,9 +79,9 @@ class GA4Client:
 
     
     async def verify_auth(self) -> bool:
-        '''
+        """
         Verify that authentication is working using the default ADC client.
-        '''
+        """
         if not self.default_property_id:
             logger.warning("No default property ID provided, skipping auth verification")
             return True
@@ -90,7 +89,6 @@ class GA4Client:
         logger.info("Verifying authentication using default ADC client.")
         client = await self._get_adc_client() 
         try:
-            # For get_metadata, the 'name' parameter is the full resource name.
             metadata_resource_name = f"properties/{self.default_property_id}/metadata"
             await self._loop.run_in_executor(
                 self._executor,
@@ -130,7 +128,8 @@ class GA4Client:
             if date_range not in DATE_RANGE_ALIASES:
                 raise ValueError(
                     f"Unknown date range alias: {date_range}. "
-                    f"Valid aliases: { cultivo}
+                    f"Valid aliases: {', '.join(DATE_RANGE_ALIASES.keys())}"  # CORRECTED LINE
+                )
             start_date, end_date = DATE_RANGE_ALIASES[date_range]
         elif isinstance(date_range, dict):
             start_date = date_range.get("start_date")
@@ -228,7 +227,6 @@ class GA4Client:
         
         try:
             metadata_request_name = f"properties/{prop_id}/metadata"
-            # The client.get_metadata method expects 'name' as a keyword argument for the request.
             response = await self._loop.run_in_executor(
                 self._executor,
                 client.get_metadata, 
