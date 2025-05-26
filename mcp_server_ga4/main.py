@@ -49,7 +49,7 @@ async def lifespan(server: FastMCP):
         await ga4_client.close()
         logger.info("GA4 client closed")
 
-# --- CUSTOM SCHEMA DEFINITIONS (NOW WITH additionalProperties FOR KWARGS) ---
+# --- CUSTOM SCHEMA DEFINITIONS (NOW WITH properties: {} FOR KWARGS) ---
 run_report_custom_input_schema = {
     "type": "object",
     "title": "run_reportArguments",
@@ -59,7 +59,7 @@ run_report_custom_input_schema = {
         "date_range":  {"title": "Date Range",  "description": "Date range for the report (e.g., 'last30days' or {'start_date': 'YYYY-MM-DD', 'end_date': 'YYYY-MM-DD'}).", "default": "last30days", "anyOf": [{"type": "object", "additionalProperties": {"type": "string"}}, {"type": "string"}]},
         "property_id": {"title": "Property Id", "description": "GA4 Property ID (e.g., '123456789').", "default": None, "anyOf": [{"type": "string"}, {"type": "null"}]},
         "limit":       {"title": "Limit",       "description": "Maximum number of rows to return in the report.", "type": "integer", "default": 10},
-        "kwargs":      {"title": "Kwargs",      "description": "Additional keyword arguments for the report.", "type": "object", "additionalProperties": True } # <<< MODIFIED
+        "kwargs":      {"title": "Kwargs",      "description": "Additional keyword arguments for the report.", "type": "object", "properties": {}, "additionalProperties": True } # <<< MODIFIED
     },
     "required": ["metrics", "kwargs"]
 }
@@ -72,7 +72,7 @@ run_realtime_report_custom_input_schema = {
         "dimensions":  {"title": "Dimensions",  "description": "List of dimensions for the realtime report (e.g., 'country', 'city').", "default": None, "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
         "property_id": {"title": "Property Id", "description": "GA4 Property ID (e.g., '123456789').", "default": None, "anyOf": [{"type": "string"}, {"type": "null"}]},
         "limit":       {"title": "Limit",       "description": "Maximum number of rows to return in the realtime report.", "type": "integer", "default": 10},
-        "kwargs":      {"title": "Kwargs",      "description": "Additional keyword arguments for the realtime report.", "type": "object", "additionalProperties": True } # <<< MODIFIED
+        "kwargs":      {"title": "Kwargs",      "description": "Additional keyword arguments for the realtime report.", "type": "object", "properties": {}, "additionalProperties": True } # <<< MODIFIED
     },
     "required": ["metrics", "kwargs"]
 }
@@ -83,7 +83,7 @@ get_metadata_custom_input_schema = {
     "properties": {
         "type":        {"title": "Type",        "description": "Type of metadata to retrieve ('all', 'metrics', or 'dimensions').", "default": "all", "type": "string"},
         "property_id": {"title": "Property Id", "description": "GA4 Property ID (e.g., '123456789').", "default": None, "anyOf": [{"type": "string"}, {"type": "null"}]},
-        "kwargs":      {"title": "Kwargs",      "description": "Additional keyword arguments.", "type": "object", "additionalProperties": True } # <<< MODIFIED
+        "kwargs":      {"title": "Kwargs",      "description": "Additional keyword arguments.", "type": "object", "properties": {}, "additionalProperties": True } # <<< MODIFIED
     },
     "required": ["kwargs"]
 }
