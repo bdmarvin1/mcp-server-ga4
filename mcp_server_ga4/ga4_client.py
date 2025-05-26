@@ -1,4 +1,4 @@
-"""Google Analytics 4 client for interacting with the GA4 Data API."""
+'''Google Analytics 4 client for interacting with the GA4 Data API.'''
 
 import asyncio
 import logging
@@ -14,6 +14,8 @@ from google.analytics.data_v1beta.types import (DateRange, Dimension, Metric,
                                                 RunReportResponse)
 from google.analytics.data_v1beta.types.analytics_data_api import GetMetadataRequest
 from google.api_core.exceptions import GoogleAPIError
+from google.oauth2 import credentials as google_credentials # Alias to avoid confusion
+
 
 logger = logging.getLogger("mcp-server-ga4")
 
@@ -22,68 +24,83 @@ DATE_RANGE_ALIASES = {
     "today": (datetime.now().strftime("%Y-%m-%d"), datetime.now().strftime("%Y-%m-%d")),
     "yesterday": ((datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"), 
                   (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")),
-    "last7days": ((datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"), 
+    "last7days": ((datetime.now() - timedelta(days=6)).strftime("%Y-%m-%d"), # Corrected: 7 days including today means 6 days ago to today
                  datetime.now().strftime("%Y-%m-%d")),
-    "last30days": ((datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"), 
+    "last30days": ((datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d"), # Corrected: 30 days including today means 29 days ago to today
                   datetime.now().strftime("%Y-%m-%d")),
 }
 
 
 class GA4Client:
-    """Client for interacting with the Google Analytics 4 Data API."""
+    '''Client for interacting with the Google Analytics 4 Data API.'''
     
     def __init__(self, default_property_id: Optional[str] = None):
-        """
+        '''
         Initialize the GA4 client.
         
         Args:
             default_property_id: Default GA4 property ID to use if not specified in requests
-        """
+        '''
         self.default_property_id = default_property_id
         self._executor = ThreadPoolExecutor(max_workers=5)
-        self._client = None
-    
-    async def _get_client(self) -> BetaAnalyticsDataClient:
-        """
-        Get or create the GA4 API client.
-        
-        Returns:
-            Google Analytics Data API client
-        """
+        # self._client is the ADC-based default client
+        self._client: Optional[BetaAnalyticsDataClient] = None
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+
+
+    async def _get_adc_client(self) -> BetaAnalyticsDataClient:
+        '''
+        Get or create the default GA4 API client using Application Default Credentials.
+        '''
         if self._client is None:
-            # Create client in executor to avoid blocking
-            loop = asyncio.get_running_loop()
-            self._client = await loop.run_in_executor(
+            logger.info("Initializing default ADC-based BetaAnalyticsDataClient.")
+            self._client = await self._loop.run_in_executor(
                 self._executor, BetaAnalyticsDataClient
             )
         return self._client
+
+    async def _get_token_based_client(self, access_token: str) -> BetaAnalyticsDataClient:
+        '''
+        Create a new GA4 API client using a provided OAuth access token.
+        '''
+        logger.info("Initializing token-based BetaAnalyticsDataClient.")
+        try:
+            creds = google_credentials.Credentials(token=access_token)
+            token_client = await self._loop.run_in_executor(
+                self._executor, BetaAnalyticsDataClient, creds
+            )
+            return token_client
+        except Exception as e: 
+            logger.error(f"Failed to create token-based client: {e}")
+            raise GoogleAPIError(f"Failed to initialize client with provided token: {e}")
+
     
     async def verify_auth(self) -> bool:
-        """
-        Verify that authentication is working.
-        
-        Returns:
-            True if authentication successful
-        
-        Raises:
-            Exception: If authentication fails
-        """
+        '''
+        Verify that authentication is working using the default ADC client.
+        '''
         if not self.default_property_id:
             logger.warning("No default property ID provided, skipping auth verification")
             return True
         
-        # Try to get metadata to verify authentication
-        client = await self._get_client()
+        logger.info("Verifying authentication using default ADC client.")
+        client = await self._get_adc_client() 
         try:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
+            # For get_metadata, the 'name' parameter is the full resource name.
+            metadata_resource_name = f"properties/{self.default_property_id}/metadata"
+            await self._loop.run_in_executor(
                 self._executor,
-                client.get_metadata,
-                GetMetadataRequest(name=f"properties/{self.default_property_id}/metadata"),
+                client.get_metadata, 
+                name=metadata_resource_name 
             )
+            logger.info("Default ADC authentication verification successful.")
             return True
         except Exception as e:
-            logger.error(f"Authentication verification failed: {e}")
+            logger.error(f"Default ADC authentication verification failed: {e}")
             raise
     
     async def run_report(
@@ -93,48 +110,38 @@ class GA4Client:
         dimensions: Optional[List[str]] = None,
         date_range: Union[Dict[str, str], str] = "last30days",
         limit: int = 10,
+        access_token: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Run a standard GA4 report.
-        
-        Args:
-            property_id: GA4 property ID (overrides default if provided)
-            metrics: List of metric names
-            dimensions: List of dimension names
-            date_range: Date range as dict with start_date and end_date keys, or string alias
-            limit: Maximum number of rows to return
-            
-        Returns:
-            Formatted report data
-            
-        Raises:
-            ValueError: If invalid parameters provided
-            GoogleAPIError: If API request fails
-        """
         if not metrics:
             raise ValueError("At least one metric must be specified")
         
-        property_id = property_id or self.default_property_id
-        if not property_id:
-            raise ValueError("No property ID provided")
+        prop_id = property_id or self.default_property_id
+        if not prop_id:
+            raise ValueError("No property ID provided (neither specific nor default).")
+
+        if access_token:
+            logger.debug(f"run_report for {prop_id} using token-based client.")
+            client = await self._get_token_based_client(access_token)
+        else:
+            logger.debug(f"run_report for {prop_id} using ADC-based client.")
+            client = await self._get_adc_client()
         
-        # Process date range
         if isinstance(date_range, str):
             if date_range not in DATE_RANGE_ALIASES:
                 raise ValueError(
                     f"Unknown date range alias: {date_range}. "
-                    f"Valid aliases: {', '.join(DATE_RANGE_ALIASES.keys())}"
-                )
+                    f"Valid aliases: { cultivo}
             start_date, end_date = DATE_RANGE_ALIASES[date_range]
-        else:
+        elif isinstance(date_range, dict):
             start_date = date_range.get("start_date")
             end_date = date_range.get("end_date")
             if not start_date or not end_date:
-                raise ValueError("Date range must include start_date and end_date")
+                raise ValueError("Date range dict must include start_date and end_date")
+        else:
+            raise ValueError("Invalid date_range format. Must be string alias or dict.")
         
-        # Build request
         request = RunReportRequest(
-            property=f"properties/{property_id}",
+            property=f"properties/{prop_id}",
             metrics=[Metric(name=metric) for metric in metrics],
             dimensions=(
                 [Dimension(name=dimension) for dimension in dimensions]
@@ -145,18 +152,14 @@ class GA4Client:
             limit=limit,
         )
         
-        # Execute request
-        client = await self._get_client()
-        loop = asyncio.get_running_loop()
         try:
-            response: RunReportResponse = await loop.run_in_executor(
+            response: RunReportResponse = await self._loop.run_in_executor(
                 self._executor, client.run_report, request
             )
-            
             return self._format_report_response(response)
         except GoogleAPIError as e:
-            logger.error(f"Error running report: {e}")
-            raise
+            logger.error(f"Error running report for property {prop_id}: {e}")
+            raise 
     
     async def run_realtime_report(
         self,
@@ -164,33 +167,24 @@ class GA4Client:
         metrics: List[str] = None,
         dimensions: Optional[List[str]] = None,
         limit: int = 10,
+        access_token: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Run a realtime GA4 report for the last 30 minutes.
-        
-        Args:
-            property_id: GA4 property ID (overrides default if provided)
-            metrics: List of metric names
-            dimensions: List of dimension names
-            limit: Maximum number of rows to return
-            
-        Returns:
-            Formatted report data
-            
-        Raises:
-            ValueError: If invalid parameters provided
-            GoogleAPIError: If API request fails
-        """
         if not metrics:
             raise ValueError("At least one metric must be specified")
         
-        property_id = property_id or self.default_property_id
-        if not property_id:
-            raise ValueError("No property ID provided")
+        prop_id = property_id or self.default_property_id
+        if not prop_id:
+            raise ValueError("No property ID provided (neither specific nor default).")
+
+        if access_token:
+            logger.debug(f"run_realtime_report for {prop_id} using token-based client.")
+            client = await self._get_token_based_client(access_token)
+        else:
+            logger.debug(f"run_realtime_report for {prop_id} using ADC-based client.")
+            client = await self._get_adc_client()
         
-        # Build request
         request = RunRealtimeReportRequest(
-            property=f"properties/{property_id}",
+            property=f"properties/{prop_id}",
             metrics=[Metric(name=metric) for metric in metrics],
             dimensions=(
                 [Dimension(name=dimension) for dimension in dimensions]
@@ -200,41 +194,24 @@ class GA4Client:
             limit=limit,
         )
         
-        # Execute request
-        client = await self._get_client()
-        loop = asyncio.get_running_loop()
         try:
-            response: RunRealtimeReportResponse = await loop.run_in_executor(
+            response: RunRealtimeReportResponse = await self._loop.run_in_executor(
                 self._executor, client.run_realtime_report, request
             )
-            
             return self._format_report_response(response)
         except GoogleAPIError as e:
-            logger.error(f"Error running realtime report: {e}")
+            logger.error(f"Error running realtime report for property {prop_id}: {e}")
             raise
     
     async def get_metadata(
         self,
         property_id: Optional[str] = None,
         metadata_type: str = "all",
+        access_token: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Get metadata about available metrics and dimensions.
-        
-        Args:
-            property_id: GA4 property ID (overrides default if provided)
-            metadata_type: Type of metadata to retrieve ("metrics", "dimensions", or "all")
-            
-        Returns:
-            Formatted metadata
-            
-        Raises:
-            ValueError: If invalid parameters provided
-            GoogleAPIError: If API request fails
-        """
-        property_id = property_id or self.default_property_id
-        if not property_id:
-            raise ValueError("No property ID provided")
+        prop_id = property_id or self.default_property_id
+        if not prop_id:
+            raise ValueError("No property ID provided (neither specific nor default).")
         
         if metadata_type not in ("metrics", "dimensions", "all"):
             raise ValueError(
@@ -242,103 +219,92 @@ class GA4Client:
                 f"Valid types: metrics, dimensions, all"
             )
         
-        # Execute request
-        client = await self._get_client()
-        loop = asyncio.get_running_loop()
+        if access_token:
+            logger.debug(f"get_metadata for {prop_id} using token-based client.")
+            client = await self._get_token_based_client(access_token)
+        else:
+            logger.debug(f"get_metadata for {prop_id} using ADC-based client.")
+            client = await self._get_adc_client()
+        
         try:
-            response = await loop.run_in_executor(
+            metadata_request_name = f"properties/{prop_id}/metadata"
+            # The client.get_metadata method expects 'name' as a keyword argument for the request.
+            response = await self._loop.run_in_executor(
                 self._executor,
-                client.get_metadata,
-                GetMetadataRequest(name=f"properties/{property_id}/metadata"),
+                client.get_metadata, 
+                name=metadata_request_name
             )
             
             result = {}
-            
             if metadata_type in ("metrics", "all"):
-                metrics = []
-                for metric in response.metrics:
-                    metrics.append({
-                        "name": metric.api_name,
-                        "display_name": metric.ui_name,
-                        "description": metric.description,
-                        "category": metric.category,
+                metrics_data = []
+                for metric_item in response.metrics:
+                    metrics_data.append({
+                        "name": metric_item.api_name,
+                        "display_name": metric_item.ui_name,
+                        "description": metric_item.description,
+                        "category": metric_item.category,
                     })
-                result["metrics"] = metrics
+                result["metrics"] = metrics_data
             
             if metadata_type in ("dimensions", "all"):
-                dimensions = []
-                for dimension in response.dimensions:
-                    dimensions.append({
-                        "name": dimension.api_name,
-                        "display_name": dimension.ui_name,
-                        "description": dimension.description,
-                        "category": dimension.category,
+                dimensions_data = []
+                for dimension_item in response.dimensions:
+                    dimensions_data.append({
+                        "name": dimension_item.api_name,
+                        "display_name": dimension_item.ui_name,
+                        "description": dimension_item.description,
+                        "category": dimension_item.category,
                     })
-                result["dimensions"] = dimensions
-            
+                result["dimensions"] = dimensions_data
             return result
         except GoogleAPIError as e:
-            logger.error(f"Error getting metadata: {e}")
+            logger.error(f"Error getting metadata for property {prop_id}: {e}")
             raise
 
     def _format_report_response(
         self, response: Union[RunReportResponse, RunRealtimeReportResponse]
     ) -> Dict[str, Any]:
-        """
-        Format a report response into a more usable structure.
-        
-        Args:
-            response: Report response from GA4 API
-            
-        Returns:
-            Formatted report data
-        """
-        # Extract dimension and metric headers
         dimension_headers = [header.name for header in response.dimension_headers]
         metric_headers = [header.name for header in response.metric_headers]
         
-        # Build rows
         rows = []
-        for row in response.rows:
+        for row_obj in response.rows:
             row_data = {}
-            
-            # Add dimensions
-            for i, dimension_value in enumerate(row.dimension_values):
+            for i, dimension_value in enumerate(row_obj.dimension_values):
                 row_data[dimension_headers[i]] = dimension_value.value
-            
-            # Add metrics
-            for i, metric_value in enumerate(row.metric_values):
+            for i, metric_value in enumerate(row_obj.metric_values):
                 row_data[metric_headers[i]] = metric_value.value
-            
             rows.append(row_data)
         
-        # Build response
         result = {
             "dimensions": dimension_headers,
             "metrics": metric_headers,
             "rows": rows,
-            "row_count": len(rows),
+            "row_count": response.row_count if hasattr(response, 'row_count') and response.row_count is not None else len(rows),
             "totals": [],
         }
         
-        # Add totals if available
         if hasattr(response, "totals") and response.totals:
             for total_row in response.totals:
                 total_data = {}
                 for i, metric_value in enumerate(total_row.metric_values):
-                    total_data[metric_headers[i]] = metric_value.value
-                result["totals"].append(total_data)
-        
+                    if i < len(metric_headers):
+                        total_data[metric_headers[i]] = metric_value.value
+                if total_data:
+                    result["totals"].append(total_data)
         return result
     
     async def close(self):
         """Close the client and clean up resources."""
         if self._client:
-            logger.debug("Closing GA4 client")
+            logger.debug("Closing default ADC GA4 client")
             try:
-                loop = asyncio.get_running_loop()
-                await loop.run_in_executor(self._executor, self._client.close)
+                await self._loop.run_in_executor(self._executor, self._client.close)
             except Exception as e:
-                logger.error(f"Error closing GA4 client: {e}")
+                logger.error(f"Error closing default ADC GA4 client: {e}")
         
-        self._executor.shutdown(wait=False)
+        logger.info("Shutting down GA4Client ThreadPoolExecutor.")
+        self._executor.shutdown(wait=True)
+        logger.info("GA4Client resources (executor) shut down.")
+
