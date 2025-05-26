@@ -4,8 +4,8 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mcp-server-ga4"
-version = "0.2.1" # Updated version
+name = "bdmarvin1-mcp-server-ga4" # <<<< UPDATED NAME
+version = "0.2.1"
 description = "Model Context Protocol (MCP) server for Google Analytics 4 (GA4) with OAuth support"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -42,18 +42,18 @@ dev = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/bdmarvin1/mcp-server-ga4" # Updated placeholder
-"Bug Tracker" = "https://github.com/bdmarvin1/mcp-server-ga4/issues" # Updated placeholder
+"Homepage" = "https://github.com/bdmarvin1/mcp-server-ga4"
+"Bug Tracker" = "https://github.com/bdmarvin1/mcp-server-ga4/issues"
 
 [project.scripts]
-mcp-server-ga4 = "mcp_server_ga4.main:main"
+mcp-server-ga4 = "mcp_server_ga4.main:main" # Script name remains the same for convenience
 
 [tool.setuptools]
 packages = ["mcp_server_ga4"]
 
 [tool.black]
 line-length = 88
-target-version = ["py39", "py310", "py311", "py312"] # Aligned with supported Python versions
+target-version = ["py39", "py310", "py311", "py312"]
 
 [tool.isort]
 profile = "black"
